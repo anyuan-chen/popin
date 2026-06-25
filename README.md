@@ -154,7 +154,7 @@ The browser connects directly to the LiveKit server for real-time media (video, 
 
 ## CLI Daemon (`popin`)
 
-A second Go binary — `cmd/daemon` — runs as a long-lived process on a user's
+A second Go binary — `cmd/popin` — runs as a long-lived process on a user's
 machine and receives incoming video calls. A caller drives the same
 `POST /api/call {target_username}` endpoint (the CLI caller flow is wired up
 separately; for now any HTTP client works) and the backend looks up the
@@ -168,7 +168,7 @@ accepts `?token=&name=&livekit_url=` query params and joins LiveKit directly,
 
 ```bash
 # From the repo root:
-go build -o popin ./cmd/daemon
+go build -o popin ./cmd/popin
 go build -o popin-server ./cmd/server
 
 # Authorize the daemon by opening a browser tab to the web login page:

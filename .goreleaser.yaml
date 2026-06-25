@@ -8,7 +8,7 @@ before:
 
 builds:
   - id: popin
-    main: ./cmd/daemon
+    main: ./cmd/popin
     binary: popin
     env:
       - CGO_ENABLED=0
