@@ -1,0 +1,92 @@
+version: 2
+
+project_name: popin
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: popin
+    main: ./cmd/daemon
+    binary: popin
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.defaultBackendURL=https://api.popin.andrewchen.uk
+      - -X main.defaultWebURL=https://popin.andrewchen.uk
+    no_unique_dist_dir: true
+
+  - id: popin-server
+    main: ./cmd/server
+    binary: popin-server
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+    no_unique_dist_dir: true
+
+archives:
+  - ids: [popin]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Os }}_{{ .Arch }}
+    formats: [tar.gz]
+  - ids: [popin-server]
+    name_template: >-
+      {{ .ProjectName }}-server_{{ .Os }}_{{ .Arch }}
+    formats: [tar.gz]
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ .Tag }}-next"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge pull request"
+      - "Merge branch"
+
+release:
+  github:
+    owner: anyuan-chen
+    name: popin
+  draft: false
+  prerelease: auto
+  name_template: "{{ .Tag }}"
+
+brews:
+  - name: popin
+    ids: [popin]
+    repository:
+      owner: anyuan-chen
+      name: homebrew-popin
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/anyuan-chen/popin
+    description: "Popin CLI daemon — receives incoming Popin video calls."
+    license: MIT
+    install: |
+      bin.install "popin"
+    test: |
+      system "#{bin}/popin", "--help"
+    skip_upload: false

@@ -1,0 +1,10 @@
+.env
+.env.prod
+*.db
+*.db-wal
+*.db-shm
+popin
+popin-server
+popin-server_*
+/dist/
+scripts/logs/

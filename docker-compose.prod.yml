@@ -1,0 +1,84 @@
+# Production stack for Popin on a self-hosted VPS.
+# Run with:
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+#
+# Prereqs on the host:
+#   - DNS: popin.andrewchen.uk, api.popin.andrewchen.uk, livekit.andrewchen.uk
+#           all -> this host's public IPv4/IPv6
+#   - Firewall open: 80/tcp, 443/tcp, 7881/tcp, 50000-50100/udp
+#   - .env.prod populated with LIVEKIT_API_KEY / LIVEKIT_API_SECRET
+#
+# Caddy terminates TLS for web + backend + livekit signalling (7880).
+# LiveKit TCP fallback (7881) and UDP media (50000-50100) bind directly on the
+# host and bypass Caddy; livekit.prod.yaml sets use_external_ip: true so clients
+# receive reachable ICE candidates.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - backend
+      - livekit
+
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --config /etc/livekit.yaml --node-id node1
+    volumes:
+      - ./livekit.prod.yaml:/etc/livekit.yaml:ro
+    # 7880 (WebSocket signalling) is NOT published to the host; Caddy proxies it
+    # internally. TCP fallback + UDP media are published directly so WebRTC
+    # clients can reach them on the public IP.
+    ports:
+      - "7881:7881"
+      - "50000-50100:50000-50100/udp"
+    environment:
+      - LIVEKIT_KEYS=${LIVEKIT_API_KEY}:${LIVEKIT_API_SECRET}
+    restart: unless-stopped
+
+  backend:
+    build: .
+    environment:
+      # Backend talks to LiveKit over the internal docker network.
+      - LIVEKIT_URL=ws://livekit:7880
+      # Browser-facing LiveKit URL (Caddy terminates wss on 443).
+      - LIVEKIT_CLIENT_URL=wss://livekit.andrewchen.uk
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      - PORT=8080
+      - DB_PATH=/app/data/popin.db
+      - SESSION_DURATION=867240h
+      - COOKIE_SECURE=true
+      - COOKIE_DOMAIN=
+      - CORS_ALLOWED_ORIGINS=https://popin.andrewchen.uk
+      - BACKEND_URL=https://api.popin.andrewchen.uk
+      - WEB_URL=https://popin.andrewchen.uk
+    volumes:
+      - backend-data:/app/data
+    depends_on:
+      - livekit
+    restart: unless-stopped
+    # No host port: only reachable via Caddy (api.popin.andrewchen.uk).
+
+  web:
+    build: ./web
+    environment:
+      # Next.js proxies /api/* to the backend over the internal network.
+      - BACKEND_URL=http://backend:8080
+    depends_on:
+      - backend
+    restart: unless-stopped
+    # No host port: only reachable via Caddy (popin.andrewchen.uk).
+
+volumes:
+  backend-data:
+  caddy_data:
+  caddy_config:

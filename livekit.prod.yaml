@@ -1,0 +1,24 @@
+# Production LiveKit config (self-hosted on a VPS with a public IP).
+# API keys are injected via the LIVEKIT_KEYS env var (format: "key:secret"),
+# NOT committed here. See docker-compose.prod.yml and .env.prod.example.
+# The dev livekit.yaml stays for local `docker compose up`.
+
+port: 7880
+bind_addresses:
+  - "0.0.0.0"
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50100
+  # Critical on a VPS: advertise the box's public IP to clients so ICE
+  # candidates are reachable. LiveKit auto-detects the external IP.
+  use_external_ip: true
+
+logging:
+  level: info
+
+room:
+  auto_create: true
+  empty_timeout: 300
+  max_participants: 10

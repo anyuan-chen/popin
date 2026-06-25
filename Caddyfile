@@ -1,0 +1,22 @@
+# Popin production edge config.
+# Caddy terminates TLS (automatic Let's Encrypt) for the browser-facing web app
+# and the Go backend API, and reverse-proxies WebSocket signalling to LiveKit.
+# LiveKit's TCP (7881) and UDP (50000-50100) media ports bypass Caddy and bind
+# directly on the host (see docker-compose.prod.yml); DNS for livekit.<domain>
+# must point at this host so clients can reach those ports directly.
+
+{
+	email admin@andrewchen.uk
+}
+
+popin.andrewchen.uk {
+	reverse_proxy web:3000
+}
+
+api.popin.andrewchen.uk {
+	reverse_proxy backend:8080
+}
+
+livekit.andrewchen.uk {
+	reverse_proxy livekit:7880
+}
