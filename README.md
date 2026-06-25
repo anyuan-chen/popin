@@ -12,7 +12,7 @@ The released `popin` CLI targets the hosted instance and needs no flags:
 ```bash
 brew tap anyuan-chen/popin https://github.com/anyuan-chen/homebrew-popin
 brew install popin
-popin login   # opens a browser to authorize
+popin login   # opens a browser to authorize (or `popin signup` if you don't have an account yet)
 popin run     # listen for incoming calls
 ```
 
@@ -23,10 +23,15 @@ popin login
 popin run
 ```
 
-To point the CLI at a self-hosted server instead, override at runtime:
+To point the CLI at a self-hosted server instead, set the URLs once and they
+persist in `~/.config/popin/config.json`:
 ```bash
-popin login --backend https://api.example.com --web https://example.com
+popin config --server https://api.example.com --web https://example.com
+popin login
+popin run
 ```
+(`BACKEND_URL` / `WEB_URL` environment variables still work as a fallback if no
+config file value is set.)
 
 ## Self-hosting
 
@@ -179,9 +184,18 @@ go build -o popin-server ./cmd/server
 #      browser to the callback URL carrying ?token=. The daemon's local
 #      server captures it and writes it to ~/.config/popin/daemon-token (0600).
 
+# Don't have an account yet? `signup` opens the same flow but pre-sets the
+# web page to register mode, so you create the account and authorize the
+# daemon in one go:
+./popin signup
+
+# Point at a self-hosted server (optional; persists to ~/.config/popin/config.json):
+./popin config --server https://api.example.com --web https://example.com
+./popin config            # print current resolved URLs
+
 # Then run the daemon:
 ./popin run      # or just `./popin`
-#   -> opens a WebSocket to <BACKEND_URL>/ws/daemon?token=<...>, reconnects
+#   -> opens a WebSocket to <server>/ws/daemon?token=<...>, reconnects
 #      on failure with exponential backoff, and opens a browser tab for each
 #      incoming call.
 
@@ -195,10 +209,11 @@ go build -o popin-server ./cmd/server
                        # confirmation), r to refresh, q to quit.
 ```
 
-Daemon flags: `--backend URL` (default `$BACKEND_URL`), `--web URL` (default
-`$WEB_URL`). A live daemon WebSocket is the source of truth for "user X is
-online right now"; if no daemon is connected for a user, calls to them return
-`{status:"unavailable"}`.
+URL resolution precedence: `popin config` values (config file) > `BACKEND_URL`
+/ `WEB_URL` env vars (or `.env`) > built-in defaults (baked in at build time
+for release binaries). A live daemon WebSocket is the source of truth for "user
+X is online right now"; if no daemon is connected for a user, calls to them
+return `{status:"unavailable"}`.
 
 ## API Endpoints
 

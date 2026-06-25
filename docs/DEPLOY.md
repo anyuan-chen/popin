@@ -118,11 +118,13 @@ Or one-liner install:
 curl -fsSL https://raw.githubusercontent.com/anyuan-chen/popin/main/scripts/install.sh | sh
 ```
 
-To point the CLI at a **different** (e.g. self-hosted) server, override at
-runtime:
+To point the CLI at a **different** (e.g. self-hosted) server, set the URLs
+once (persists to `~/.config/popin/config.json`):
 
 ```bash
-popin login --backend https://api.example.com --web https://example.com
+popin config --server https://api.example.com --web https://example.com
+popin login
+popin run
 ```
 
 ## 8. TURN server (optional, for restrictive NATs)
