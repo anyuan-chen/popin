@@ -75,7 +75,7 @@ func sendFriendRequest(cfg *daemonConfig, token, target string) error {
 	case http.StatusBadRequest:
 		return errors.New("cannot befriend yourself")
 	case http.StatusUnauthorized:
-		return errors.New("daemon token invalid or expired (run `popin login` again)")
+		return errors.New("phone attendant token invalid or expired (run `popin login` again)")
 	default:
 		return fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}

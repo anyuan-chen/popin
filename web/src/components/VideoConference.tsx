@@ -47,8 +47,8 @@ export function VideoConference({
       <RoomAudioRenderer />
 
       {!connected && (
-        <div className="absolute inset-0 flex items-center justify-center bg-neutral-950">
-          <p className="text-neutral-500">Connecting to {roomName}...</p>
+        <div className="absolute inset-0 flex items-center justify-center bg-white">
+          <p className="text-black/60">Connecting to {roomName}...</p>
         </div>
       )}
     </LiveKitRoom>

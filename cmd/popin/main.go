@@ -69,7 +69,7 @@ func main() {
 	web := flag.String("web", envOr("WEB_URL", defaultWebURL), "web app base URL")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: popin [flags] <login|run|logout|friend [username]>\n\n")
-		fmt.Fprintf(os.Stderr, "Subcommands:\n  login           authorize the daemon via browser\n  run             listen for incoming calls (default)\n  logout          delete the daemon token\n  friend [user]   send a friend request to <user>, or open the friends TUI\n                  (accept/deny incoming, unfriend) when no argument given\n\n")
+		fmt.Fprintf(os.Stderr, "Subcommands:\n  login           authorize the phone attendant via browser\n  run             listen for incoming calls (default)\n  logout          delete the phone attendant token\n  friend [user]   send a friend request to <user>, or open the friends TUI\n                  (accept/deny incoming, unfriend) when no argument given\n\n")
 		fmt.Fprintf(os.Stderr, "Flags:\n")
 		flag.PrintDefaults()
 	}
@@ -100,7 +100,7 @@ func main() {
 		}
 	case "run", "":
 		if err := runDaemon(cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "daemon failed: %v\n", err)
+			fmt.Fprintf(os.Stderr, "phone attendant failed: %v\n", err)
 			os.Exit(1)
 		}
 	default:
@@ -266,9 +266,9 @@ func runDaemon(cfg *daemonConfig) error {
 	}
 	username, err := fetchMe(cfg, token)
 	if err != nil {
-		return fmt.Errorf("could not verify daemon token (is the backend up?): %w", err)
+		return fmt.Errorf("could not verify phone attendant token (is the backend up?): %w", err)
 	}
-	fmt.Printf("Popin daemon online as %s. Waiting for incoming calls.\n", username)
+	fmt.Printf("Popin phone attendant online as %s. Waiting for incoming calls.\n", username)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -291,7 +291,7 @@ func runDaemon(cfg *daemonConfig) error {
 			return nil
 		}
 		if replaced {
-			fmt.Println("Replaced by another daemon session. Exiting.")
+			fmt.Println("Replaced by another phone attendant session. Exiting.")
 			return nil
 		}
 		if err != nil {
@@ -320,10 +320,10 @@ func connectOnce(ctx context.Context, cfg *daemonConfig, token string) (bool, er
 	conn, resp, err := dialer.DialContext(ctx, u, nil)
 	if err != nil {
 		if resp != nil && resp.StatusCode == http.StatusForbidden {
-			return false, errors.New("server rejected daemon token (run `popin login` again)")
+			return false, errors.New("server rejected phone attendant token (run `popin login` again)")
 		}
 		if resp != nil && resp.StatusCode == http.StatusUnauthorized {
-			return false, errors.New("daemon token invalid or expired (run `popin login` again)")
+			return false, errors.New("phone attendant token invalid or expired (run `popin login` again)")
 		}
 		return false, fmt.Errorf("dial: %w", err)
 	}
