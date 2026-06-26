@@ -190,18 +190,19 @@ func (c *daemonConfig) wsURL(path string) string {
 // ---------------------------------------------------------------------------
 
 func runLogin(cfg *daemonConfig) error {
-	return runBrowserAuth(cfg, "login")
+	return runBrowserAuth(cfg, "login", "")
 }
 
 // runSignup is like runLogin but opens the page in register mode so a user
 // without an account can create one and authorize the daemon in a single flow.
 func runSignup(cfg *daemonConfig) error {
-	return runBrowserAuth(cfg, "signup")
+	return runBrowserAuth(cfg, "login", "register")
 }
 
-// runBrowserAuth opens the web <page> (/login or /signup) with a callback,
-// waits for the browser to POST back a daemon token, and saves it.
-func runBrowserAuth(cfg *daemonConfig, page string) error {
+// runBrowserAuth opens the web <page> (/login) with a callback, waits for the
+// browser to POST back a daemon token, and saves it. mode, when non-empty,
+// is passed as ?mode= so the login page can render in register (or other) mode.
+func runBrowserAuth(cfg *daemonConfig, page, mode string) error {
 	// Bind a free localhost port for the OAuth-style callback.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -242,8 +243,20 @@ func runBrowserAuth(cfg *daemonConfig, page string) error {
 	defer srv.Shutdown(context.Background())
 
 	// Open the browser to the web page, asking it to send the daemon
-	// token back to our callback.
-	loginURL := cfg.WebURL + "/" + page + "?redirect=" + url.QueryEscape(callbackURL)
+	// token back to our callback. Build the URL via net/url so query params
+	// (mode, redirect) are properly encoded regardless of cfg.WebURL shape.
+	u, err := url.Parse(cfg.WebURL)
+	if err != nil {
+		return fmt.Errorf("parse web url: %w", err)
+	}
+	u.Path = "/" + page
+	q := u.Query()
+	if mode != "" {
+		q.Set("mode", mode)
+	}
+	q.Set("redirect", callbackURL)
+	u.RawQuery = q.Encode()
+	loginURL := u.String()
 	fmt.Printf("Opening browser to authorize Popin...\n  %s\n", loginURL)
 	if err := openBrowser(loginURL); err != nil {
 		fmt.Fprintf(os.Stderr, "Could not open browser automatically: %v\n", err)
@@ -410,6 +423,21 @@ func connectOnce(ctx context.Context, cfg *daemonConfig, token string) (bool, er
 				}
 			}
 		}
+	}()
+
+	// Cancellation (e.g. SIGINT) does not interrupt a blocked
+	// conn.ReadMessage() — Gorilla reads honor only the socket's own
+	// deadlines. Watch ctx and force-close the connection on cancel so the
+	// read unblocks immediately instead of hanging until the server's
+	// ~70s read timeout fires.
+	go func() {
+		<-ctx.Done()
+		_ = conn.WriteControl(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+			time.Now().Add(2*time.Second),
+		)
+		_ = conn.Close()
 	}()
 
 	var replaced bool
