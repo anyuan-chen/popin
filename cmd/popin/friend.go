@@ -46,7 +46,7 @@ func runFriend(cfg *daemonConfig, args []string) error {
 // daemon token via the Authorization header, the same way runDaemon does.
 func sendFriendRequest(cfg *daemonConfig, token, target string) error {
 	body, _ := json.Marshal(map[string]string{"target_username": target})
-	req, _ := http.NewRequest(http.MethodPost, cfg.BackendURL+"/api/friends/request", bytes.NewReader(body))
+	req, _ := http.NewRequest(http.MethodPost, cfg.ServerURL+"/api/friends/request", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -83,7 +83,7 @@ func sendFriendRequest(cfg *daemonConfig, token, target string) error {
 
 // fetchFriends retrieves the current friends + incoming requests list.
 func fetchFriends(cfg *daemonConfig, token string) (*friendList, error) {
-	req, _ := http.NewRequest(http.MethodGet, cfg.BackendURL+"/api/friends", nil)
+	req, _ := http.NewRequest(http.MethodGet, cfg.ServerURL+"/api/friends", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -109,7 +109,7 @@ func fetchFriends(cfg *daemonConfig, token string) (*friendList, error) {
 // backend's status field on success.
 func postFriendAction(cfg *daemonConfig, token, endpoint, target string) (string, error) {
 	body, _ := json.Marshal(map[string]string{"username": target})
-	req, _ := http.NewRequest(http.MethodPost, cfg.BackendURL+endpoint, bytes.NewReader(body))
+	req, _ := http.NewRequest(http.MethodPost, cfg.ServerURL+endpoint, bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 

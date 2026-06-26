@@ -13,14 +13,14 @@ The released `popin` CLI targets the hosted instance and needs no flags:
 brew tap anyuan-chen/popin https://github.com/anyuan-chen/homebrew-popin
 brew install popin
 popin login   # opens a browser to authorize (or `popin signup` if you don't have an account yet)
-popin run     # listen for incoming calls
+popin listen  # listen for incoming calls
 ```
 
 **Or one-liner:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/anyuan-chen/popin/main/scripts/install.sh | sh
 popin login
-popin run
+popin listen
 ```
 
 To point the CLI at a self-hosted server instead, set the URLs once and they
@@ -28,7 +28,7 @@ persist in `~/.config/popin/config.json`:
 ```bash
 popin config --server https://api.example.com --web https://example.com
 popin login
-popin run
+popin listen
 ```
 (`BACKEND_URL` / `WEB_URL` environment variables still work as a fallback if no
 config file value is set.)
@@ -194,7 +194,7 @@ go build -o popin-server ./cmd/server
 ./popin config            # print current resolved URLs
 
 # Then run the daemon:
-./popin run      # or just `./popin`
+./popin listen
 #   -> opens a WebSocket to <server>/ws/daemon?token=<...>, reconnects
 #      on failure with exponential backoff, and opens a browser tab for each
 #      incoming call.

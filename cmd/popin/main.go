@@ -5,15 +5,28 @@
 //
 //	popin login     Authorize the daemon by opening a browser tab to the web
 //	                login page. Stores the resulting daemon token on disk.
-//	popin run        (default) Connect to the backend and listen for incoming
-//	                 calls indefinitely, opening a browser tab for each.
+//	popin signup     Like login, but opens the web page in register mode so a
+//	                new account can be created and authorized in one go.
+//	popin listen     Connect to the server and listen for incoming calls
+//	                 indefinitely, opening a browser tab for each.
 //	popin logout     Delete the stored daemon token (and revoke it server-side
-//	                 if the backend is reachable).
+//	                 if the server is reachable).
+//	popin config     Show or set the server/web URLs (persisted to
+//	                 ~/.config/popin/config.json).
 //
-// Flags (apply to run/login):
+// URL resolution precedence (highest wins):
 //
-//	--backend URL   Backend base URL (default $BACKEND_URL or http://localhost:8080)
-//	--web URL       Web app base URL  (default $WEB_URL or http://localhost:3000)
+//  1. --server / --web flags on the current command
+//  2. values saved by `popin config` (config.json)
+//  3. BACKEND_URL / WEB_URL environment variables (or .env)
+//  4. built-in defaults (baked in at build time for release binaries)
+//
+// With no subcommand, `popin` prints help (like `popin --help`).
+//
+// Flags (apply to listen/login/signup):
+//
+//	--server URL   Server base URL (overrides config/env)
+//	--web URL      Web app base URL (overrides config/env)
 //
 // The daemon token is stored at ~/.config/popin/daemon-token (0600). Re-running
 // `popin login` replaces any existing daemon session for this user server-side
@@ -46,46 +59,87 @@ import (
 
 const (
 	tokenFileName  = "daemon-token"
+	configFileName = "config.json"
 	loginTimeout   = 5 * time.Minute
 	wsReconnectMin = 1 * time.Second
 	wsReconnectMax = 30 * time.Second
 	wsPingInterval = 30 * time.Second
 )
 
-// defaultBackendURL / defaultWebURL are overridable at build time via -ldflags
-// "-X main.defaultBackendURL=... -X main.defaultWebURL=...". The released CLI
+// defaultServerURL / defaultWebURL are overridable at build time via -ldflags
+// "-X main.defaultServerURL=... -X main.defaultWebURL=...". The released CLI
 // is built against the hosted production URLs so `popin login` works without
 // flags or environment; dev builds keep the localhost defaults.
 var (
-	defaultBackendURL = "http://localhost:8080"
-	defaultWebURL     = "http://localhost:3000"
+	defaultServerURL = "http://localhost:8080"
+	defaultWebURL    = "http://localhost:3000"
 )
 
 func main() {
 	// godotenv makes local .env pick up BACKEND_URL/WEB_URL like the server.
 	godotenv.Load()
 
-	backend := flag.String("backend", envOr("BACKEND_URL", defaultBackendURL), "backend base URL")
-	web := flag.String("web", envOr("WEB_URL", defaultWebURL), "web app base URL")
+	server := flag.String("server", "", "server base URL (overrides `popin config` / env)")
+	web := flag.String("web", "", "web app base URL (overrides `popin config` / env)")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: popin [flags] <login|run|logout|friend [username]>\n\n")
-		fmt.Fprintf(os.Stderr, "Subcommands:\n  login           authorize the phone attendant via browser\n  run             listen for incoming calls (default)\n  logout          delete the phone attendant token\n  friend [user]   send a friend request to <user>, or open the friends TUI\n                  (accept/deny incoming, unfriend) when no argument given\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: popin [flags] <login|signup|config|listen|logout|friend [username]>\n\n")
+		fmt.Fprintf(os.Stderr, "Subcommands:\n  login           authorize the phone attendant via browser\n  signup          register a new account + authorize the phone attendant via browser\n  config          show or set the server/web URLs (persisted to ~/.config/popin/config.json)\n  listen          listen for incoming calls\n  logout          delete the phone attendant token\n  friend [user]   send a friend request to <user>, or open the friends TUI\n                  (accept/deny incoming, unfriend) when no argument given\n\n")
+		fmt.Fprintf(os.Stderr, "With no subcommand, prints this help (same as `popin --help`).\n\n")
 		fmt.Fprintf(os.Stderr, "Flags:\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
 
-	cmd := "run"
-	if flag.NArg() > 0 {
-		cmd = flag.Arg(0)
+	set := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { set[f.Name] = true })
+
+	// With no subcommand, show help instead of implicitly starting the
+	// listener. Users must opt in with `popin listen`.
+	if flag.NArg() == 0 {
+		flag.Usage()
+		return
 	}
 
-	cfg := &daemonConfig{BackendURL: strings.TrimRight(*backend, "/"), WebURL: strings.TrimRight(*web, "/")}
+	cmd := flag.Arg(0)
+
+	// `popin config` manages the persisted URLs; handle it before resolving
+	// URLs for the other commands. It parses its own flags (which appear
+	// *after* the subcommand, e.g. `popin config --server X`).
+	if cmd == "config" {
+		cfgSet := flag.NewFlagSet("config", flag.ExitOnError)
+		s := cfgSet.String("server", "", "server base URL")
+		w := cfgSet.String("web", "", "web app base URL")
+		cfgSet.Usage = func() {
+			fmt.Fprintf(os.Stderr, "Usage: popin config [--server URL] [--web URL]\n\n")
+			fmt.Fprintf(os.Stderr, "With no flags, prints the currently resolved URLs.\n")
+			fmt.Fprintf(os.Stderr, "With flags, saves them to ~/.config/popin/config.json (either flag is optional).\n\n")
+			cfgSet.PrintDefaults()
+		}
+		cfgSet.Parse(flag.Args()[1:])
+		cfgSetChanged := map[string]bool{}
+		cfgSet.Visit(func(f *flag.Flag) { cfgSetChanged[f.Name] = true })
+		if err := runConfig(*s, *w, cfgSetChanged["server"], cfgSetChanged["web"]); err != nil {
+			fmt.Fprintf(os.Stderr, "config failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	fileCfg, _ := loadURLConfig() // missing file is fine; fall back to env/defaults
+	cfg := &daemonConfig{
+		ServerURL: pick(*server, set["server"], fileCfg.ServerURL, "BACKEND_URL", defaultServerURL),
+		WebURL:    pick(*web, set["web"], fileCfg.WebURL, "WEB_URL", defaultWebURL),
+	}
 
 	switch cmd {
 	case "login":
 		if err := runLogin(cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "login failed: %v\n", err)
+			os.Exit(1)
+		}
+	case "signup":
+		if err := runSignup(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "signup failed: %v\n", err)
 			os.Exit(1)
 		}
 	case "logout":
@@ -98,7 +152,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "friend failed: %v\n", err)
 			os.Exit(1)
 		}
-	case "run", "":
+	case "listen":
 		if err := runDaemon(cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "phone attendant failed: %v\n", err)
 			os.Exit(1)
@@ -111,13 +165,13 @@ func main() {
 }
 
 type daemonConfig struct {
-	BackendURL string
-	WebURL     string
+	ServerURL string
+	WebURL    string
 }
 
-// wsURL derives a ws/wss URL from the backend's http(s) base URL.
+// wsURL derives a ws/wss URL from the server's http(s) base URL.
 func (c *daemonConfig) wsURL(path string) string {
-	u, err := url.Parse(c.BackendURL)
+	u, err := url.Parse(c.ServerURL)
 	if err != nil || u.Scheme == "" {
 		u, _ = url.Parse("http://localhost:8080")
 	}
@@ -136,6 +190,18 @@ func (c *daemonConfig) wsURL(path string) string {
 // ---------------------------------------------------------------------------
 
 func runLogin(cfg *daemonConfig) error {
+	return runBrowserAuth(cfg, "login")
+}
+
+// runSignup is like runLogin but opens the page in register mode so a user
+// without an account can create one and authorize the daemon in a single flow.
+func runSignup(cfg *daemonConfig) error {
+	return runBrowserAuth(cfg, "signup")
+}
+
+// runBrowserAuth opens the web <page> (/login or /signup) with a callback,
+// waits for the browser to POST back a daemon token, and saves it.
+func runBrowserAuth(cfg *daemonConfig, page string) error {
 	// Bind a free localhost port for the OAuth-style callback.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -175,9 +241,9 @@ func runLogin(cfg *daemonConfig) error {
 	}()
 	defer srv.Shutdown(context.Background())
 
-	// Open the browser to the web login page, asking it to send the daemon
+	// Open the browser to the web page, asking it to send the daemon
 	// token back to our callback.
-	loginURL := cfg.WebURL + "/login?redirect=" + url.QueryEscape(callbackURL)
+	loginURL := cfg.WebURL + "/" + page + "?redirect=" + url.QueryEscape(callbackURL)
 	fmt.Printf("Opening browser to authorize Popin...\n  %s\n", loginURL)
 	if err := openBrowser(loginURL); err != nil {
 		fmt.Fprintf(os.Stderr, "Could not open browser automatically: %v\n", err)
@@ -197,7 +263,7 @@ func runLogin(cfg *daemonConfig) error {
 		} else {
 			fmt.Printf("Logged in as %s.\n", username)
 		}
-		fmt.Println("Now run `popin run` to listen for incoming calls.")
+		fmt.Println("Now run `popin listen` to listen for incoming calls.")
 		return nil
 	case err := <-errCh:
 		return fmt.Errorf("callback server: %w", err)
@@ -207,7 +273,7 @@ func runLogin(cfg *daemonConfig) error {
 }
 
 func fetchMe(cfg *daemonConfig, token string) (string, error) {
-	req, _ := http.NewRequest(http.MethodGet, cfg.BackendURL+"/api/auth/me", nil)
+	req, _ := http.NewRequest(http.MethodGet, cfg.ServerURL+"/api/auth/me", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -240,7 +306,7 @@ func runLogout(cfg *daemonConfig) error {
 		return err
 	}
 	// Best-effort revoke server-side.
-	req, _ := http.NewRequest(http.MethodPost, cfg.BackendURL+"/api/auth/logout", nil)
+	req, _ := http.NewRequest(http.MethodPost, cfg.ServerURL+"/api/auth/logout", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	if resp, err := http.DefaultClient.Do(req); err == nil {
 		resp.Body.Close()
@@ -253,7 +319,7 @@ func runLogout(cfg *daemonConfig) error {
 }
 
 // ---------------------------------------------------------------------------
-// run (daemon loop)
+// listen (daemon loop)
 // ---------------------------------------------------------------------------
 
 func runDaemon(cfg *daemonConfig) error {
@@ -447,9 +513,116 @@ func openBrowser(rawURL string) error {
 	return errors.New("no supported browser opener found (looked for 'open', 'xdg-open', Windows 'start')")
 }
 
-func envOr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+// pick resolves a single URL following the documented precedence: explicit
+// flag value > config-file value > environment variable > built-in default.
+// flagVal is the --server/--web string (empty when the flag was not passed);
+// flagChanged distinguishes a deliberately empty-ish override from "not set",
+// though in practice URLs are never empty so the flag value is used as-is.
+func pick(flagVal string, flagChanged bool, fileVal, envKey, def string) string {
+	if flagChanged && flagVal != "" {
+		return strings.TrimRight(flagVal, "/")
+	}
+	if fileVal != "" {
+		return strings.TrimRight(fileVal, "/")
+	}
+	if v := os.Getenv(envKey); v != "" {
+		return strings.TrimRight(v, "/")
 	}
 	return def
+}
+
+// ---------------------------------------------------------------------------
+// config
+// ---------------------------------------------------------------------------
+
+// urlConfig is the persisted ~/.config/popin/config.json. Both fields are
+// optional; a field set to "" means "leave it unset (fall back to env/default)".
+type urlConfig struct {
+	ServerURL string `json:"server_url,omitempty"`
+	WebURL    string `json:"web_url,omitempty"`
+}
+
+// runConfig implements `popin config`. With URL flags it updates config.json;
+// without flags it prints the currently resolved URLs.
+func runConfig(serverVal, webVal string, serverChanged, webChanged bool) error {
+	if !serverChanged && !webChanged {
+		// Print-only mode: show the fully resolved URLs.
+		fileCfg, err := loadURLConfig()
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		server := pick("", false, fileCfg.ServerURL, "BACKEND_URL", defaultServerURL)
+		web := pick("", false, fileCfg.WebURL, "WEB_URL", defaultWebURL)
+		fmt.Printf("server: %s\nweb:   %s\n", server, web)
+		fmt.Fprintln(os.Stderr, "(URLs resolve in order: --server/--web flags > `popin config` values > BACKEND_URL/WEB_URL env > built-in defaults)")
+		return nil
+	}
+
+	// Update mode: merge provided flags into the existing file.
+	fileCfg, err := loadURLConfig()
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if serverChanged {
+		fileCfg.ServerURL = strings.TrimRight(serverVal, "/")
+	}
+	if webChanged {
+		fileCfg.WebURL = strings.TrimRight(webVal, "/")
+	}
+	if err := saveURLConfig(fileCfg); err != nil {
+		return err
+	}
+	fmt.Printf("Saved to %s\nserver: %s\nweb:   %s\n", mustConfigPath(), fileCfg.ServerURL, fileCfg.WebURL)
+	return nil
+}
+
+func configDir() (string, error) {
+	if dir := os.Getenv("POPIN_TOKEN_DIR"); dir != "" {
+		return dir, nil
+	}
+	c, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(c, "popin"), nil
+}
+
+func mustConfigPath() string {
+	dir, err := configDir()
+	if err != nil {
+		return configFileName
+	}
+	return filepath.Join(dir, configFileName)
+}
+
+func loadURLConfig() (urlConfig, error) {
+	dir, err := configDir()
+	if err != nil {
+		return urlConfig{}, err
+	}
+	b, err := os.ReadFile(filepath.Join(dir, configFileName))
+	if err != nil {
+		return urlConfig{}, err
+	}
+	var c urlConfig
+	if err := json.Unmarshal(b, &c); err != nil {
+		return urlConfig{}, fmt.Errorf("parse %s: %w", configFileName, err)
+	}
+	return c, nil
+}
+
+func saveURLConfig(c urlConfig) error {
+	dir, err := configDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	return os.WriteFile(filepath.Join(dir, configFileName), b, 0o600)
 }

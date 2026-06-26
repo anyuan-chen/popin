@@ -109,7 +109,7 @@ The released `popin` CLI is built against `api.popin.andrewchen.uk` and
 brew tap anyuan-chen/popin https://github.com/anyuan-chen/homebrew-popin
 brew install popin
 popin login        # opens a browser to the hosted login page
-popin run          # listen for incoming calls
+popin listen       # listen for incoming calls
 ```
 
 Or one-liner install:
@@ -124,7 +124,7 @@ once (persists to `~/.config/popin/config.json`):
 ```bash
 popin config --server https://api.example.com --web https://example.com
 popin login
-popin run
+popin listen
 ```
 
 ## 8. TURN server (optional, for restrictive NATs)
