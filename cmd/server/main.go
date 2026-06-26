@@ -10,7 +10,7 @@ import (
 	"github.com/popin/popin/auth"
 	"github.com/popin/popin/config"
 	"github.com/popin/popin/db"
-	"github.com/popin/popin/server"
+	"github.com/popin/popin/internal/api"
 )
 
 func main() {
@@ -31,7 +31,7 @@ func main() {
 
 	authSvc := auth.NewService(database, cfg.SessionDuration)
 
-	srv := server.New(cfg, authSvc)
+	srv := api.New(cfg, authSvc)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

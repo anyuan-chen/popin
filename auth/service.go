@@ -15,6 +15,8 @@ import (
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrUsernameTaken      = errors.New("username already taken")
+	ErrMissingCredentials = errors.New("username and password are required")
+	ErrPasswordTooShort   = errors.New("password must be at least 8 characters")
 )
 
 // Session kinds.
@@ -55,10 +57,10 @@ func (s *AuthService) DB() *sql.DB { return s.db }
 
 func (s *AuthService) Register(username, password string) (*User, error) {
 	if username == "" || password == "" {
-		return nil, errors.New("username and password are required")
+		return nil, ErrMissingCredentials
 	}
 	if len(password) < 8 {
-		return nil, errors.New("password must be at least 8 characters")
+		return nil, ErrPasswordTooShort
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)

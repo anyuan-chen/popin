@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"fmt"
@@ -13,8 +13,8 @@ import (
 // two sections (Incoming and Friends) switched via Tab; the cursor (j/k)
 // tracks per-section. unfriend prompts a y/n confirmation as it is the one
 // destructive, non-undoable action — accept and deny append immediately.
-func runFriendsTUI(cfg *daemonConfig, token string) error {
-	p := tea.NewProgram(initialFriendModel(cfg, token), tea.WithAltScreen())
+func runFriendsTUI(c *Config, token string) error {
+	p := tea.NewProgram(initialFriendModel(c, token), tea.WithAltScreen())
 	m, err := p.Run()
 	if err != nil {
 		return fmt.Errorf("tui: %w", err)
@@ -42,7 +42,7 @@ const (
 )
 
 type friendModel struct {
-	cfg   *daemonConfig
+	cfg   *Config
 	token string
 
 	section   int
@@ -58,9 +58,9 @@ type friendModel struct {
 	confirmTarget *friendUser
 }
 
-func initialFriendModel(cfg *daemonConfig, token string) friendModel {
+func initialFriendModel(c *Config, token string) friendModel {
 	return friendModel{
-		cfg:     cfg,
+		cfg:     c,
 		token:   token,
 		section: sectionIncoming,
 		cursor:  map[int]int{sectionIncoming: 0, sectionFriends: 0},

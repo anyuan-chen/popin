@@ -44,7 +44,6 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user    ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
-CREATE INDEX IF NOT EXISTS idx_sessions_user_kind ON sessions(user_id, kind);
 `)
 	if err != nil {
 		return fmt.Errorf("migrate: %w", err)
@@ -89,13 +88,14 @@ CREATE INDEX IF NOT EXISTS idx_fe_subject ON friendship_events(subject_id);
 // databases. New databases should ideally have it in CREATE TABLE above, but
 // adding it there would not affect already-created tables, so we always run
 // this additive migration. SQLite has no ADD COLUMN IF NOT EXISTS, so we probe
-// PRAGMA table_info first.
+// PRAGMA table_info first. The idx_sessions_user_kind index is created here
+// (rather than in the CREATE TABLE block above) because it references `kind`
+// and must not run until the column exists on legacy databases.
 func migrateSessionsKind(db *sql.DB) error {
 	rows, err := db.Query(`PRAGMA table_info(sessions)`)
 	if err != nil {
 		return fmt.Errorf("probe columns: %w", err)
 	}
-	defer rows.Close()
 
 	hasKind := false
 	for rows.Next() {
@@ -104,6 +104,7 @@ func migrateSessionsKind(db *sql.DB) error {
 		var notnull, pk int
 		var dflt sql.NullString
 		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
 			return fmt.Errorf("scan column: %w", err)
 		}
 		if name == "kind" {
@@ -112,19 +113,21 @@ func migrateSessionsKind(db *sql.DB) error {
 		}
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return fmt.Errorf("iterate columns: %w", err)
 	}
-	if hasKind {
-		return nil
+	// Close the PRAGMA result rows before any subsequent db.Exec: db is
+	// configured with SetMaxOpenConns(1), so issuing a write while the
+	// read cursor is still open would deadlock waiting for the connection.
+	rows.Close()
+
+	if !hasKind {
+		if _, err := db.Exec(`ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'browser'`); err != nil {
+			return fmt.Errorf("add column: %w", err)
+		}
 	}
 
-	_, err = db.Exec(`ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'browser'`)
-	if err != nil {
-		return fmt.Errorf("add column: %w", err)
-	}
-
-	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_sessions_user_kind ON sessions(user_id, kind)`)
-	if err != nil {
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_sessions_user_kind ON sessions(user_id, kind)`); err != nil {
 		return fmt.Errorf("create index: %w", err)
 	}
 

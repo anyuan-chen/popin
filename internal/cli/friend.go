@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -23,10 +23,10 @@ type friendList struct {
 	Requests []friendUser `json:"requests"`
 }
 
-// runFriend implements `popin friend [username]`. With a username argument it
+// Friend implements `popin friend [username]`. With a username argument it
 // sends a friend request; with no argument it opens the bubbletea TUI for
 // accepting/denying incoming requests and unfriending.
-func runFriend(cfg *daemonConfig, args []string) error {
+func Friend(c *Config, args []string) error {
 	token, err := loadToken()
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -36,17 +36,17 @@ func runFriend(cfg *daemonConfig, args []string) error {
 	}
 
 	if len(args) > 0 {
-		return sendFriendRequest(cfg, token, args[0])
+		return sendFriendRequest(c, token, args[0])
 	}
-	return runFriendsTUI(cfg, token)
+	return runFriendsTUI(c, token)
 }
 
 // sendFriendRequest POSTs a friend request to the backend and prints a
 // human-readable result line for the common service-error cases. Reuses the
-// daemon token via the Authorization header, the same way runDaemon does.
-func sendFriendRequest(cfg *daemonConfig, token, target string) error {
+// daemon token via the Authorization header, the same way Listen does.
+func sendFriendRequest(c *Config, token, target string) error {
 	body, _ := json.Marshal(map[string]string{"target_username": target})
-	req, _ := http.NewRequest(http.MethodPost, cfg.ServerURL+"/api/friends/request", bytes.NewReader(body))
+	req, _ := http.NewRequest(http.MethodPost, c.ServerURL+"/api/friends/request", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -82,8 +82,8 @@ func sendFriendRequest(cfg *daemonConfig, token, target string) error {
 }
 
 // fetchFriends retrieves the current friends + incoming requests list.
-func fetchFriends(cfg *daemonConfig, token string) (*friendList, error) {
-	req, _ := http.NewRequest(http.MethodGet, cfg.ServerURL+"/api/friends", nil)
+func fetchFriends(c *Config, token string) (*friendList, error) {
+	req, _ := http.NewRequest(http.MethodGet, c.ServerURL+"/api/friends", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -107,9 +107,9 @@ func fetchFriends(cfg *daemonConfig, token string) (*friendList, error) {
 // postFriendAction POSTs to one of /api/friends/{accept,deny,unfriend}. target
 // is the other user's username. Returns (status, error) where status is the
 // backend's status field on success.
-func postFriendAction(cfg *daemonConfig, token, endpoint, target string) (string, error) {
+func postFriendAction(c *Config, token, endpoint, target string) (string, error) {
 	body, _ := json.Marshal(map[string]string{"username": target})
-	req, _ := http.NewRequest(http.MethodPost, cfg.ServerURL+endpoint, bytes.NewReader(body))
+	req, _ := http.NewRequest(http.MethodPost, c.ServerURL+endpoint, bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 

@@ -1,4 +1,4 @@
-package server
+package api
 
 import (
 	"context"
@@ -118,12 +118,16 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	user, err := s.authSvc.Register(req.Username, req.Password)
 	if err != nil {
-		if errors.Is(err, auth.ErrUsernameTaken) {
+		switch {
+		case errors.Is(err, auth.ErrUsernameTaken):
 			writeError(w, err.Error(), http.StatusConflict)
-			return
+		case errors.Is(err, auth.ErrMissingCredentials),
+			errors.Is(err, auth.ErrPasswordTooShort):
+			writeError(w, err.Error(), http.StatusBadRequest)
+		default:
+			log.Printf("Error registering user: %v", err)
+			writeError(w, "Registration failed", http.StatusBadRequest)
 		}
-		log.Printf("Error registering user: %v", err)
-		writeError(w, "Registration failed", http.StatusBadRequest)
 		return
 	}
 

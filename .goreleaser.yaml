@@ -20,8 +20,8 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X main.defaultServerURL=https://api.popin.andrewchen.uk
-      - -X main.defaultWebURL=https://popin.andrewchen.uk
+      - -X github.com/popin/popin/internal/cli.defaultServerURL=https://api.popin.andrewchen.uk
+      - -X github.com/popin/popin/internal/cli.defaultWebURL=https://popin.andrewchen.uk
     no_unique_dist_dir: true
 
   - id: popin-server
